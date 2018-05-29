@@ -27,7 +27,7 @@ function woocommerce_pz_init() {
             // Go wild in here
             $this->id = 'pz';
             $this->method_title = __('pz', 'pz');
-            $this->icon = plugins_url('images/payicon.png', __FILE__);
+            //$this->icon = plugins_url('images/payicon.png', __FILE__);
             $this->has_fields = false;
             $this->init_form_fields();
             $this->init_settings();

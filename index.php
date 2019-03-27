@@ -40,11 +40,13 @@ function woocommerce_pz_init() {
             //Gateway specific fields start
             $this->totype = $this->settings['totype'];
             $this->partenerid = $this->settings['partenerid'];
+            $this->language = $this->settings['language'];
             
             $this->ipaddr = $this->settings['ipaddr'];
             $this->livemode = $this->settings['livemode'];
             $this->liveurl = $this->settings['liveurl'];
             $this->testurl = $this->settings['testurl'];
+			$this->queryurl = $this->settings['queryurl'];
            // $this->testurl = $this->settings['testurl'];
             $this->paymenttype = "";
             $this->cardtype = "";
@@ -107,6 +109,13 @@ function woocommerce_pz_init() {
                     'description' => __('Enter Partner Id', 'pz'),
                 ),
 				
+				'language' => array(
+					'title' 			=> __('Your Store Language', 'pz'),
+					'type' 			=> 'select',
+					'options' 		=> array('bg'=>'Bulgarian', 'en'=>'English', 'ja'=>'Japanese'),
+					'description' => __('Your Store Language', 'pz')
+				),
+				
 				
 				'ipaddr' => array(
                     'title' => __('Ip Address', 'pz'),
@@ -136,6 +145,12 @@ function woocommerce_pz_init() {
                     'title' => __('Test Mode URL', 'pz'),
                     'type' => 'text',
                     'description' => __('Test Mode Transaction URL', 'pz'),
+                ),
+				
+				'queryurl' => array(
+                    'title' => __('Query URL', 'pz'),
+                    'type' => 'text',
+                    'description' => __('Query URL', 'pz'),
                 )
             );
         }
@@ -297,7 +312,7 @@ function woocommerce_pz_init() {
             $redirecturl = $this->notify_url;
             $country = $woocommerce->customer->get_country();
             $CURRENCY = get_woocommerce_currency();
-            $checksum = MD5( $testchecksum = trim($this->merchant_id) . "|" . trim($this->totype) . "|" . trim($order->order_total) . "|" . trim($order_id) . "|" . trim($redirecturl) . "|" . trim($this->working_key));
+            $checksum = MD5( $testchecksum = trim($this->merchant_id) . "|" . trim($this->totype) . "|" . trim(number_format((float)$order->order_total, 2, '.', '')) . "|" . trim($order_id) . "|" . trim($redirecturl) . "|" . trim($this->working_key));
             if ('Y' == $this->livemode) {
                 $this->url =$this->liveurl;
             } else {
@@ -607,12 +622,17 @@ function woocommerce_pz_init() {
                 $paramsJoined[] = "$param=$value";
             }
             $merchant_data = implode('&', $paramsJoined);
-            $encrypted_data = encrypt($merchant_data, $this->working_key);
+            if(phpversion() <= '7.0.10'){
+				$encrypted_data = encrypt1($merchant_data, $this->working_key);
+			} else{
+                $encrypted_data = encrypt2($merchant_data, $this->working_key);
+            }
             $pz_args_array = array();
             $pz_args_array[] = "<input type='hidden' name='encRequest' value='{$encrypted_data}'/>";
             //pz elements
             $pz_args_array[] = "<input type='hidden' name='toid' value='{$this->merchant_id}'/>";
             $pz_args_array[] = "<input type='hidden' name='partenerid' value='{$this->partenerid}'/>";
+            $pz_args_array[] = "<input type='hidden' name='lang' value='{$this->language}'/>";
             $pz_args_array[] = "<input type='hidden' name='ipaddr' value='{$this->ipaddr}'/>";
             $pz_args_array[] = "<input type='hidden' name='paymenttype' value='{$this->paymenttype}'/>";
             $pz_args_array[] = "<input type='hidden' name='cardtype' value='{$this->cardtype}'/>";
@@ -718,7 +738,7 @@ jQuery(".payment_buttons").hide();
   pz functions
  */
 
-function encrypt($plainText, $key) {
+function encrypt1($plainText, $key) {
     $secretKey = hextobin(md5($key));
     $initVector = pack("C*", 0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f);
     $openMode = mcrypt_module_open(MCRYPT_RIJNDAEL_128, '', 'cbc', '');
@@ -731,7 +751,7 @@ function encrypt($plainText, $key) {
     return bin2hex($encryptedText);
 }
 
-function decrypt($encryptedText, $key) {
+function decrypt1($encryptedText, $key) {
     $secretKey = hextobin(md5($key));
     $initVector = pack("C*", 0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f);
     $encryptedText = hextobin($encryptedText);
@@ -742,6 +762,28 @@ function decrypt($encryptedText, $key) {
     mcrypt_generic_deinit($openMode);
     return $decryptedText;
 }
+
+function encrypt2($plainText, $key) {
+$ivlen = openssl_cipher_iv_length($cipher="AES-128-CBC");
+$iv = openssl_random_pseudo_bytes($ivlen);
+$ciphertext_raw = openssl_encrypt($plaintext, $cipher, $key, $options=OPENSSL_RAW_DATA, $iv);
+$hmac = hash_hmac('sha256', $ciphertext_raw, $key, $as_binary=true);
+$ciphertext = base64_encode( $iv.$hmac.$ciphertext_raw );
+}
+
+function decrypt2($encryptedText, $key) {
+//decrypt later....
+$c = base64_decode($ciphertext);
+$ivlen = openssl_cipher_iv_length($cipher="AES-128-CBC");
+$iv = substr($c, 0, $ivlen);
+$hmac = substr($c, $ivlen, $sha2len=32);
+$ciphertext_raw = substr($c, $ivlen+$sha2len);
+$original_plaintext = openssl_decrypt($ciphertext_raw, $cipher, $key, $options=OPENSSL_RAW_DATA, $iv);
+$calcmac = hash_hmac('sha256', $ciphertext_raw, $key, $as_binary=true);
+}
+
+
+
 
 //*********** Padding Function *********************
 
@@ -920,47 +962,40 @@ function my_plugin_settings_page() {
             global $wpdb;
             $wp_pz_tbl_var = $wpdb->get_row("SELECT order_id,tracking_id FROM wp_pz_tbl where woocommerce_id=".$id);
             if (!empty($wp_pz_tbl_var)) {
-                $description = $wp_pz_tbl_var->order_id;
+                $description = $id."-".$pg->merchant_id;
                 $trackingid =null;
-                //var_dump($description);
-                //var_dump($trackingid);
-                $str = $pg->merchant_id . "|" . $description . "|" . $trackingid . "|" . $pg->working_key;
-                $checksum = md5($str);
+                $str = $pg->merchant_id . "|" . $pg->working_key. "|" . $id."-".$pg->merchant_id ;
+			    $checksum = md5($str);
                 $request = "toid=" . $pg->merchant_id . "&trackingid=" . $trackingid . "&description=" . $description . "&checksum=" . $checksum;
                 $ch = curl_init();
-                $url="";
-                if ('Y' == $pg->livemode)
-                 {
-                  $url = $pg->liveurl;
-            } 
-            else
-                {
-                $url = $pg->testurl;
-            }
-                
-                curl_setopt($ch, CURLOPT_URL, $url);
-                curl_setopt($ch, CURLOPT_CAINFO, $ssl);
-                curl_setopt($ch, CURLOPT_VERBOSE, true);
-                curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, 0);
-                curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, 0);
-                curl_setopt($ch, CURLOPT_POST, 1);
-                curl_setopt($ch, CURLOPT_POSTFIELDS, $request);
-                curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-                curl_setopt($ch, CURLOPT_HTTPHEADER, array());
-                $result = curl_exec($ch);
-                //var_dump($result);
-                $temp = explode(":", $result);
-                $id_pz = implode(",", $_POST["id"]);
-                $update_pz_tbl = $wpdb->update('wp_pz_tbl', array('order_status' => trim($temp[2]),'tracking_id'=>trim($temp[1])), array('woocommerce_id' => $id));
+                $url= $pg->queryurl."/".$id."-".$pg->merchant_id;
+				
+			$data = "authentication.memberId=$pg->merchant_id" .
+			"&authentication.checksum=$checksum" .
+			"&paymentType=IN" .
+			"&idType=MID";
+
+			$ch = curl_init();
+		     curl_setopt($ch, CURLOPT_URL, $url);
+			curl_setopt($ch, CURLOPT_POST, 1);
+			curl_setopt($ch, CURLOPT_POSTFIELDS, $data);
+			curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
+			curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+			curl_setopt($ch, CURLOPT_HTTPHEADER, array());
+			$result = curl_exec($ch);
+			
+	      $json = json_decode($result);
+
+          $update_pz_tbl = $wpdb->update('wp_pz_tbl', array('order_status' => trim($json ->status)), array('woocommerce_id' => $id));
                 $woo_commerce_status = "";
-                if (trim($temp[2]) == 'capturesuccess' || trim($temp[2]) == 'authsuccessful') {
+                if ($json ->status == 'capturesuccess' || $json ->status == 'authsuccessful') {
                     $woo_commerce_status = "wc-processing";
-                } else if (trim($temp[2]) == 'authstarted') {
+                } else if ($json ->status == 'authstarted' || $json ->status == 'begun') {
                     $woo_commerce_status = "wc-pending";
                 } else {
                     $woo_commerce_status = "wc-failed";
                 }
-                $wpdb->update('wp_posts', array('post_status' => $woo_commerce_status), array('ID' => $id_pz));
+                $wpdb->update('wp_posts', array('post_status' => $woo_commerce_status), array('ID' => $id));
 				
 				 if ($update_pz_tbl) {
                     echo "<p style='color:green;'>Updated Successfully!!!</p>";
